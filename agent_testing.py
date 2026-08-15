@@ -5,24 +5,39 @@ import os
 import sys
 from groq import Groq
 from dotenv import load_dotenv
+from llm_utils import safe_json_parse
 
 load_dotenv()
 
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
-def generate_and_run_tests(issue_title: str, fix: dict, requirements: dict) -> dict:
+def _generate_test_code(issue_title: str, fix: dict, requirements: dict, previous_error: str = None) -> dict:
+    error_context = ""
+    if previous_error:
+        error_context = f"""
+IMPORTANT: A previous attempt at this test file FAILED to run correctly, not because the
+underlying logic was wrong, but because of a bug in the TEST CODE ITSELF (e.g. wrong mock
+usage, wrong attribute access, syntax error). Here is the failure output:
+
+{previous_error}
+
+Fix the test code so it is correct and runnable. Common issues to avoid: don't call methods
+on lambdas that don't have those methods (e.g. don't call .write() on a plain lambda — use a
+simple class with a real method, or a list that you .append() to instead), keep mocks simple.
+"""
+
     prompt = f"""You are a Testing agent. Write a SELF-CONTAINED Python pytest file that
 demonstrates test-writing for this fix, without depending on any external module, class,
 or import that isn't defined inside the test file itself.
 
 Since the real fix is in {fix['language']} and there's no real codebase connected yet,
-DO NOT import from any project module (no "from your_module import X", no "from app import Y").
-Instead, define any needed function/class stub directly inside this same test file
-(e.g. a small Python function that mimics the logic being validated), then write pytest
-tests against that locally-defined stub. The file must be 100% runnable as-is with only
+DO NOT import from any project module. Define any needed function/class stub directly
+inside this same test file, then write pytest tests against that locally-defined stub.
+Keep any mock/stub objects SIMPLE — prefer plain classes with real methods over lambdas
+standing in for objects with methods. The file must be 100% runnable as-is with only
 pytest as a dependency.
-
+{error_context}
 Issue: {issue_title}
 Acceptance criteria: {json.dumps(requirements['acceptance_criteria'])}
 Fix approach: {fix['proposed_approach']}
@@ -41,11 +56,12 @@ Respond ONLY with valid JSON in exactly this format, no other text:
     )
 
     raw_text = response.choices[0].message.content
-    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-    result = json.loads(raw_text)
+    return safe_json_parse(raw_text, groq_client=groq_client)
 
+
+def _run_pytest(test_code: str) -> tuple[str, bool]:
     with tempfile.NamedTemporaryFile(mode="w", suffix="_test.py", delete=False) as f:
-        f.write(result["test_code"])
+        f.write(test_code)
         test_file = f.name
 
     try:
@@ -53,12 +69,34 @@ Respond ONLY with valid JSON in exactly this format, no other text:
             [sys.executable, "-m", "pytest", test_file, "-v"],
             capture_output=True, text=True, timeout=15
         )
-        result["execution_output"] = proc.stdout + proc.stderr
-        result["tests_passed"] = proc.returncode == 0
+        output = proc.stdout + proc.stderr
+        passed = proc.returncode == 0
     except Exception as e:
-        result["execution_output"] = str(e)
-        result["tests_passed"] = False
+        output = str(e)
+        passed = False
     finally:
         os.unlink(test_file)
+
+    return output, passed
+
+
+def generate_and_run_tests(issue_title: str, fix: dict, requirements: dict, max_attempts: int = 2) -> dict:
+    result = None
+    previous_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        print(f"  [Testing Agent] Attempt {attempt}/{max_attempts}...")
+        result = _generate_test_code(issue_title, fix, requirements, previous_error)
+        output, passed = _run_pytest(result["test_code"])
+        result["execution_output"] = output
+        result["tests_passed"] = passed
+        result["attempts_used"] = attempt
+
+        if passed:
+            print(f"  [Testing Agent] Tests passed on attempt {attempt}.")
+            break
+        else:
+            print(f"  [Testing Agent] Tests failed on attempt {attempt}, retrying with feedback...")
+            previous_error = output
 
     return result

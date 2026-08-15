@@ -3,6 +3,7 @@ import json
 from groq import Groq
 from dotenv import load_dotenv
 import os
+from llm_utils import safe_json_parse
 
 load_dotenv()
 
@@ -18,7 +19,7 @@ def fetch_github_issue(owner: str, repo: str, issue_number: int) -> dict:
         "Accept": "application/vnd.github+json"
     }
     response = requests.get(url, headers=headers)
-    response.raise_for_status()  # errors loudly if something's wrong
+    response.raise_for_status()
     return response.json()
 
 
@@ -43,19 +44,14 @@ Respond ONLY with valid JSON in exactly this format, no other text:
     response = groq_client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0  # more deterministic output for structured data
+        temperature=0
     )
 
     raw_text = response.choices[0].message.content
-
-    # Clean up in case the model wraps it in ```json fences
-    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-
-    return json.loads(raw_text)
+    return safe_json_parse(raw_text, groq_client=groq_client)
 
 
 if __name__ == "__main__":
-    # Using a real public repo issue as a test — feel free to swap this
     owner = "facebook"
     repo = "react"
     issue_number = 28000

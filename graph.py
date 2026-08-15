@@ -27,10 +27,16 @@ def bug_investigation_node(state: PipelineState) -> dict:
 
 def coding_node(state: PipelineState) -> dict:
     print(f"[Coding Assistant Agent] Proposing fix (attempt {state.get('revision_count', 0) + 1})...")
-    fix = propose_fix(state["issue_title"], state["requirements"], state["investigation"])
+    investigation = state.get("investigation") or {
+        "likely_root_causes": ["N/A - not classified as a bug, no investigation performed"],
+        "suspected_files_or_areas": [state["requirements"]["summary"]]
+    }
+    fix = propose_fix(state["issue_title"], state["requirements"], investigation)
     needs_approval = fix["needs_human_review"] or fix["risk_level"] in ("medium", "high")
     return {
-        "fix": fix, "needs_human_approval": needs_approval, "status": "fix_proposed",
+        "fix": fix,
+        "needs_human_approval": needs_approval,
+        "status": "fix_proposed",
         "revision_count": state.get("revision_count", 0) + 1
     }
 
@@ -62,7 +68,7 @@ def route_after_review(state: PipelineState) -> str:
         return "approved"
     if state["revision_count"] >= 2:
         print("[Orchestrator] Max revisions reached, escalating to human.")
-        return "approved"  # escalate instead of infinite loop
+        return "approved"
     print("[Orchestrator] Review rejected -> sending back to Coding Assistant\n")
     return "coding"
 
@@ -93,8 +99,7 @@ def build_graph():
         {"coding": "coding", "approved": "testing"}
     )
 
-    # Parallel fan-out: both run after review passes
-    graph.add_edge("review", "documentation")  # documentation doesn't need review gate, runs alongside
+    graph.add_edge("review", "documentation")
     graph.add_edge("testing", END)
     graph.add_edge("documentation", END)
 

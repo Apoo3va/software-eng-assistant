@@ -4,9 +4,9 @@ import json
 app = build_graph()
 
 initial_state = {
-    "owner": "microsoft",
-    "repo": "vscode",
-    "issue_number": 200000,
+    "owner": "pallets",
+    "repo": "click",
+    "issue_number": 3362,
     "revision_count": 0,
 }
 

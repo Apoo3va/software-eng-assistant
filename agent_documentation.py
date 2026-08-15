@@ -2,6 +2,7 @@ import json
 from groq import Groq
 from dotenv import load_dotenv
 import os
+from llm_utils import safe_json_parse
 
 load_dotenv()
 
@@ -32,5 +33,4 @@ Write documentation for this change. Respond ONLY with valid JSON in exactly thi
     )
 
     raw_text = response.choices[0].message.content
-    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-    return json.loads(raw_text)
+    return safe_json_parse(raw_text,groq_client=groq_client)
