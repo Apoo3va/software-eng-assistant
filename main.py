@@ -18,4 +18,4 @@ print(json.dumps(final_state, indent=2, default=str))
 if final_state.get("needs_human_approval"):
     print("\n[Orchestrator] HUMAN APPROVAL REQUIRED before this fix proceeds further.")
 else:
-    print("\n[Orchestrator] Fix marked low-risk, would proceed to Testing Agent (not built yet).")
+    print("\n[Orchestrator] Pipeline complete. Fix, tests, and documentation are ready for auto-merge (low risk, no human review flagged).")

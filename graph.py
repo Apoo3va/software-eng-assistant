@@ -6,6 +6,7 @@ from agent_coding import propose_fix
 from agent_code_review import review_code
 from agent_testing import generate_and_run_tests
 from agent_documentation import generate_docs
+from memory_store import store_resolved_issue, recall_similar_issues
 
 
 def fetch_issue_node(state: PipelineState) -> dict:
@@ -14,19 +15,27 @@ def fetch_issue_node(state: PipelineState) -> dict:
 
 
 def requirements_node(state: PipelineState) -> dict:
-    print("[Requirements Analysis Agent] Analyzing...")
+    print("[Requirements Analysis Agent] Analyzing...", flush=True)
     requirements = analyze_requirements(state["issue_title"], state["issue_body"])
     return {"requirements": requirements, "status": "requirements_done"}
 
 
 def bug_investigation_node(state: PipelineState) -> dict:
-    print("[Bug Investigation Agent] Investigating...")
+    print("[Bug Investigation Agent] Investigating...", flush=True)
+
+    similar_past = recall_similar_issues(f"{state['issue_title']} {state['requirements']['summary']}")
+    if similar_past:
+        print(f"  [Memory] Found {len(similar_past)} similar past resolved issue(s).", flush=True)
+    else:
+        print("  [Memory] No similar past issues found (memory empty or no match).", flush=True)
+
     investigation = investigate_bug(state["issue_title"], state["issue_body"], state["requirements"])
+    investigation["similar_past_issues"] = similar_past
     return {"investigation": investigation, "status": "investigation_done"}
 
 
 def coding_node(state: PipelineState) -> dict:
-    print(f"[Coding Assistant Agent] Proposing fix (attempt {state.get('revision_count', 0) + 1})...")
+    print(f"[Coding Assistant Agent] Proposing fix (attempt {state.get('revision_count', 0) + 1})...", flush=True)
     investigation = state.get("investigation") or {
         "likely_root_causes": ["N/A - not classified as a bug, no investigation performed"],
         "suspected_files_or_areas": [state["requirements"]["summary"]]
@@ -42,20 +51,24 @@ def coding_node(state: PipelineState) -> dict:
 
 
 def review_node(state: PipelineState) -> dict:
-    print("[Code Reviewer Agent] Reviewing...")
+    print("[Code Reviewer Agent] Reviewing...", flush=True)
     review = review_code(state["issue_title"], state["fix"], state["requirements"])
     return {"review": review, "status": "review_done"}
 
 
 def testing_node(state: PipelineState) -> dict:
-    print("[Testing Agent] Writing and running tests...")
+    print("[Testing Agent] Writing and running tests...", flush=True)
     test_results = generate_and_run_tests(state["issue_title"], state["fix"], state["requirements"])
     return {"test_results": test_results}
 
 
 def documentation_node(state: PipelineState) -> dict:
-    print("[Documentation Writer Agent] Generating docs...")
+    print("[Documentation Writer Agent] Generating docs...", flush=True)
     docs = generate_docs(state["issue_title"], state["fix"], state["requirements"])
+
+    if state["review"]["approved"]:
+        store_resolved_issue(state["issue_title"], state["requirements"], state["fix"], state["review"])
+
     return {"documentation": docs}
 
 
@@ -67,9 +80,9 @@ def route_after_review(state: PipelineState) -> str:
     if state["review"]["approved"]:
         return "approved"
     if state["revision_count"] >= 2:
-        print("[Orchestrator] Max revisions reached, escalating to human.")
+        print("[Orchestrator] Max revisions reached, escalating to human.", flush=True)
         return "approved"
-    print("[Orchestrator] Review rejected -> sending back to Coding Assistant\n")
+    print("[Orchestrator] Review rejected -> sending back to Coding Assistant\n", flush=True)
     return "coding"
 
 

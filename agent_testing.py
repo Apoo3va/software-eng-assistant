@@ -18,13 +18,15 @@ def _generate_test_code(issue_title: str, fix: dict, requirements: dict, previou
         error_context = f"""
 IMPORTANT: A previous attempt at this test file FAILED to run correctly, not because the
 underlying logic was wrong, but because of a bug in the TEST CODE ITSELF (e.g. wrong mock
-usage, wrong attribute access, syntax error). Here is the failure output:
+usage, wrong attribute access, syntax error, unescaped newline in a string). Here is the
+failure output:
 
 {previous_error}
 
 Fix the test code so it is correct and runnable. Common issues to avoid: don't call methods
 on lambdas that don't have those methods (e.g. don't call .write() on a plain lambda — use a
-simple class with a real method, or a list that you .append() to instead), keep mocks simple.
+simple class with a real method, or a list that you .append() to instead), keep mocks simple,
+and never put a raw line break inside a quoted string — use \\n instead.
 """
 
     prompt = f"""You are a Testing agent. Write a SELF-CONTAINED Python pytest file that
@@ -35,8 +37,10 @@ Since the real fix is in {fix['language']} and there's no real codebase connecte
 DO NOT import from any project module. Define any needed function/class stub directly
 inside this same test file, then write pytest tests against that locally-defined stub.
 Keep any mock/stub objects SIMPLE — prefer plain classes with real methods over lambdas
-standing in for objects with methods. The file must be 100% runnable as-is with only
-pytest as a dependency.
+standing in for objects with methods. CRITICAL: when writing string literals inside the
+Python code, NEVER put an actual line break inside a single-quoted or double-quoted string
+— always use the escape sequence \\n (backslash-n) instead. A raw newline inside quotes is
+a Python syntax error. The file must be 100% runnable as-is with only pytest as a dependency.
 {error_context}
 Issue: {issue_title}
 Acceptance criteria: {json.dumps(requirements['acceptance_criteria'])}
@@ -44,7 +48,7 @@ Fix approach: {fix['proposed_approach']}
 
 Respond ONLY with valid JSON in exactly this format, no other text:
 {{
-  "test_code": "complete, self-contained, runnable pytest file content as a string, use \\n for newlines, no external project imports, must actually pass",
+  "test_code": "complete, self-contained, runnable pytest file content as a string, use \\\\n for newlines, no external project imports, must actually pass",
   "test_summary": "one sentence describing what the tests check"
 }}
 """
@@ -80,12 +84,12 @@ def _run_pytest(test_code: str) -> tuple[str, bool]:
     return output, passed
 
 
-def generate_and_run_tests(issue_title: str, fix: dict, requirements: dict, max_attempts: int = 2) -> dict:
+def generate_and_run_tests(issue_title: str, fix: dict, requirements: dict, max_attempts: int = 3) -> dict:
     result = None
     previous_error = None
 
     for attempt in range(1, max_attempts + 1):
-        print(f"  [Testing Agent] Attempt {attempt}/{max_attempts}...")
+        print(f"  [Testing Agent] Attempt {attempt}/{max_attempts}...", flush=True)
         result = _generate_test_code(issue_title, fix, requirements, previous_error)
         output, passed = _run_pytest(result["test_code"])
         result["execution_output"] = output
@@ -93,10 +97,10 @@ def generate_and_run_tests(issue_title: str, fix: dict, requirements: dict, max_
         result["attempts_used"] = attempt
 
         if passed:
-            print(f"  [Testing Agent] Tests passed on attempt {attempt}.")
+            print(f"  [Testing Agent] Tests passed on attempt {attempt}.", flush=True)
             break
         else:
-            print(f"  [Testing Agent] Tests failed on attempt {attempt}, retrying with feedback...")
+            print(f"  [Testing Agent] Tests failed on attempt {attempt}, retrying with feedback...", flush=True)
             previous_error = output
 
     return result
