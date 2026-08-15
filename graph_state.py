@@ -12,5 +12,7 @@ class PipelineState(TypedDict):
     fix: Optional[dict]
     review: Optional[dict]
     revision_count: int
+    test_results: Optional[dict]
+    documentation: Optional[dict]
     needs_human_approval: bool
     status: str
