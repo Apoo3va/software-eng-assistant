@@ -3,6 +3,7 @@ from graph_state import PipelineState
 from agent_requirements import fetch_github_issue, analyze_requirements
 from agent_bug_investigation import investigate_bug
 from agent_coding import propose_fix
+from agent_code_review import review_code
 
 
 def fetch_issue_node(state: PipelineState) -> dict:
@@ -27,18 +28,39 @@ def bug_investigation_node(state: PipelineState) -> dict:
 
 
 def coding_node(state: PipelineState) -> dict:
-    print("[Coding Assistant Agent] Proposing fix...")
+    print(f"[Coding Assistant Agent] Proposing fix (attempt {state.get('revision_count', 0) + 1})...")
     fix = propose_fix(state["issue_title"], state["requirements"], state["investigation"])
     needs_approval = fix["needs_human_review"] or fix["risk_level"] in ("medium", "high")
-    return {"fix": fix, "needs_human_approval": needs_approval, "status": "fix_proposed"}
+    return {
+        "fix": fix,
+        "needs_human_approval": needs_approval,
+        "status": "fix_proposed",
+        "revision_count": state.get("revision_count", 0) + 1
+    }
+
+
+def review_node(state: PipelineState) -> dict:
+    print("[Code Reviewer Agent] Reviewing...")
+    review = review_code(state["issue_title"], state["fix"], state["requirements"])
+    return {"review": review, "status": "review_done"}
 
 
 def route_after_requirements(state: PipelineState) -> str:
-    """This function IS the orchestrator's routing decision."""
     if state["requirements"]["type"] == "bug":
         return "bug_investigation"
     else:
-        return "coding"  # non-bugs skip straight to coding for now
+        return "coding"
+
+
+def route_after_review(state: PipelineState) -> str:
+    """Reflection loop: send back to coding if rejected, up to 2 revisions max."""
+    if state["review"]["approved"]:
+        return "end"
+    if state["revision_count"] >= 2:
+        print("[Orchestrator] Max revisions reached, escalating to human.")
+        return "end"
+    print("[Orchestrator] Review rejected -> sending back to Coding Assistant\n")
+    return "coding"
 
 
 def build_graph():
@@ -48,11 +70,11 @@ def build_graph():
     graph.add_node("requirements", requirements_node)
     graph.add_node("bug_investigation", bug_investigation_node)
     graph.add_node("coding", coding_node)
+    graph.add_node("review", review_node)
 
     graph.add_edge(START, "fetch_issue")
     graph.add_edge("fetch_issue", "requirements")
 
-    # Conditional edge = the routing logic, now declared explicitly instead of buried in an if/else
     graph.add_conditional_edges(
         "requirements",
         route_after_requirements,
@@ -60,6 +82,12 @@ def build_graph():
     )
 
     graph.add_edge("bug_investigation", "coding")
-    graph.add_edge("coding", END)
+    graph.add_edge("coding", "review")
+
+    graph.add_conditional_edges(
+        "review",
+        route_after_review,
+        {"coding": "coding", "end": END}
+    )
 
     return graph.compile()

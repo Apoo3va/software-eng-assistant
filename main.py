@@ -7,6 +7,7 @@ initial_state = {
     "owner": "microsoft",
     "repo": "vscode",
     "issue_number": 200000,
+    "revision_count": 0,
 }
 
 final_state = app.invoke(initial_state)
