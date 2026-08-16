@@ -1,3 +1,6 @@
 venv/
 .env
 __pycache__/
+chroma_db/
+cloned_repos/
+.streamlit/
