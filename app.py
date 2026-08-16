@@ -1,6 +1,7 @@
 import streamlit as st
 from graph import build_graph
 from rag_indexer import build_index
+from github_actions import submit_fix_as_pr
 import json
 
 st.set_page_config(page_title="AI Software Engineering Assistant", layout="wide")
@@ -111,7 +112,20 @@ else:
         col1, col2 = st.columns(2)
         with col1:
             if st.button("✅ Approve Fix"):
-                st.success("Fix approved by human reviewer. (In a full system, this would trigger a PR.)")
+                with st.spinner("Creating branch, committing fix, opening PR on GitHub..."):
+                    try:
+                        pr_url = submit_fix_as_pr(
+                            upstream_owner=state["owner"],
+                            repo=state["repo"],
+                            issue_number=state["issue_number"],
+                            issue_title=state["issue_title"],
+                            fix=state["fix"],
+                            documentation=state["documentation"]
+                        )
+                        st.success(f"✅ Fix approved and PR opened!")
+                        st.markdown(f"**[View PR on GitHub →]({pr_url})**")
+                    except Exception as e:
+                        st.error(f"Failed to create PR: {e}")
         with col2:
             if st.button("❌ Reject Fix"):
                 st.error("Fix rejected. Would route back to Coding Assistant for revision.")
