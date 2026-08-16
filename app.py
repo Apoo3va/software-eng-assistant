@@ -1,8 +1,19 @@
 import streamlit as st
 from graph import build_graph
+from rag_indexer import build_index
 import json
 
 st.set_page_config(page_title="AI Software Engineering Assistant", layout="wide")
+
+
+@st.cache_resource
+def ensure_rag_index():
+    build_index()
+    return True
+
+
+with st.spinner("Setting up knowledge base (first run only, ~1-2 min)..."):
+    ensure_rag_index()
 
 st.title("🔧 AI Software Engineering Assistant")
 st.caption("Multi-agent system: Requirements → Bug Investigation (RAG) → Coding → Review (reflection loop) → Testing (self-correcting) + Documentation (parallel)")
@@ -25,8 +36,13 @@ if run_button:
         "issue_number": int(issue_number),
         "revision_count": 0,
     }
-    with st.spinner("Running multi-agent pipeline..."):
-        st.session_state.final_state = app.invoke(initial_state)
+    try:
+        with st.spinner("Running multi-agent pipeline..."):
+            st.session_state.final_state = app.invoke(initial_state)
+    except Exception as e:
+        st.error(f"Pipeline failed: {e}")
+        st.info("This can happen occasionally due to LLM output variability. Try clicking Run Pipeline again.")
+        st.session_state.final_state = None
 
 state = st.session_state.final_state
 
@@ -90,7 +106,6 @@ else:
 
     st.divider()
 
-    # Human approval gate
     if state.get("needs_human_approval"):
         st.warning("⚠️ HUMAN APPROVAL REQUIRED before this fix proceeds further.")
         col1, col2 = st.columns(2)
