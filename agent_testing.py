@@ -54,7 +54,7 @@ Respond ONLY with valid JSON in exactly this format, no other text:
 """
 
     response = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         messages=[{"role": "user", "content": prompt}],
         temperature=0
     )
@@ -84,7 +84,7 @@ def _run_pytest(test_code: str) -> tuple[str, bool]:
     return output, passed
 
 
-def generate_and_run_tests(issue_title: str, fix: dict, requirements: dict, max_attempts: int = 3) -> dict:
+def generate_and_run_tests(issue_title: str, fix: dict, requirements: dict, max_attempts: int = 2) -> dict:
     result = None
     previous_error = None
 

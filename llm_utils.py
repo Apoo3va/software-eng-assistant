@@ -15,7 +15,7 @@ def _fix_invalid_escapes(text: str) -> str:
     return re.sub(r'\\(.)', replace_bad_escape, text)
 
 
-def safe_json_parse(raw_text: str, groq_client=None, retry_model: str = "llama-3.3-70b-versatile") -> dict:
+def safe_json_parse(raw_text: str, groq_client=None, retry_model: str = "openai/gpt-oss-120b") -> dict:
     """
     Robustly parse JSON from an LLM response. Handles common issues:
     markdown fences, trailing commas, invalid backslash escapes, unescaped newlines.
