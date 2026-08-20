@@ -7,7 +7,7 @@ load_dotenv()  # reads .env file
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 response = client.chat.completions.create(
-    model="openai/gpt-oss-120b",
+    model="openai/gpt-oss-20b",
     messages=[
         {"role": "user", "content": "Say hello and tell me one fact about software engineering."}
     ]

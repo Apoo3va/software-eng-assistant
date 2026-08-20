@@ -7,6 +7,7 @@ from agent_code_review import review_code
 from agent_testing import generate_and_run_tests
 from agent_documentation import generate_docs
 from memory_store import store_resolved_issue, recall_similar_issues
+from rag_indexer import build_index
 
 
 def fetch_issue_node(state: PipelineState) -> dict:
@@ -17,6 +18,10 @@ def fetch_issue_node(state: PipelineState) -> dict:
 def requirements_node(state: PipelineState) -> dict:
     print("[Requirements Analysis Agent] Analyzing...", flush=True)
     requirements = analyze_requirements(state["issue_title"], state["issue_body"])
+    requirements.setdefault("type", "chore")
+    requirements.setdefault("summary", "No summary provided.")
+    requirements.setdefault("acceptance_criteria", [])
+    requirements.setdefault("estimated_complexity", "medium")
     return {"requirements": requirements, "status": "requirements_done"}
 
 
@@ -29,7 +34,14 @@ def bug_investigation_node(state: PipelineState) -> dict:
     else:
         print("  [Memory] No similar past issues found (memory empty or no match).", flush=True)
 
-    investigation = investigate_bug(state["issue_title"], state["issue_body"], state["requirements"])
+    investigation = investigate_bug(
+        state["issue_title"], state["issue_body"], state["requirements"],
+        state["owner"], state["repo"]
+    )
+    investigation.setdefault("likely_root_causes", [])
+    investigation.setdefault("suspected_files_or_areas", [])
+    investigation.setdefault("suggested_investigation_steps", [])
+    investigation.setdefault("confidence", "low")
     investigation["similar_past_issues"] = similar_past
     return {"investigation": investigation, "status": "investigation_done"}
 
@@ -40,7 +52,17 @@ def coding_node(state: PipelineState) -> dict:
         "likely_root_causes": ["N/A - not classified as a bug, no investigation performed"],
         "suspected_files_or_areas": [state["requirements"]["summary"]]
     }
-    fix = propose_fix(state["issue_title"], state["requirements"], investigation)
+    fix = propose_fix(
+        state["issue_title"], state["requirements"], investigation,
+        state["owner"], state["repo"]
+    )
+
+    fix.setdefault("needs_human_review", True)
+    fix.setdefault("risk_level", "medium")
+    fix.setdefault("language", "python")
+    fix.setdefault("proposed_approach", "No approach description provided.")
+    fix.setdefault("code_snippet", "")
+
     needs_approval = fix["needs_human_review"] or fix["risk_level"] in ("medium", "high")
     return {
         "fix": fix,
@@ -53,7 +75,16 @@ def coding_node(state: PipelineState) -> dict:
 def review_node(state: PipelineState) -> dict:
     print("[Code Reviewer Agent] Reviewing...", flush=True)
     review = review_code(state["issue_title"], state["fix"], state["requirements"])
+    review.setdefault("approved", False)
+    review.setdefault("issues", [])
+    review.setdefault("feedback", "No feedback provided.")
+    review.setdefault("severity", "minor")
     return {"review": review, "status": "review_done"}
+
+
+def review_resolved_node(state: PipelineState) -> dict:
+    """Pass-through node: reached only once review is truly resolved (approved or escalated)."""
+    return {}
 
 
 def testing_node(state: PipelineState) -> dict:
@@ -65,6 +96,9 @@ def testing_node(state: PipelineState) -> dict:
 def documentation_node(state: PipelineState) -> dict:
     print("[Documentation Writer Agent] Generating docs...", flush=True)
     docs = generate_docs(state["issue_title"], state["fix"], state["requirements"])
+    docs.setdefault("changelog_entry", "No changelog entry provided.")
+    docs.setdefault("code_comments", "")
+    docs.setdefault("readme_snippet", "")
 
     if state["review"]["approved"]:
         store_resolved_issue(state["issue_title"], state["requirements"], state["fix"], state["review"])
@@ -78,10 +112,10 @@ def route_after_requirements(state: PipelineState) -> str:
 
 def route_after_review(state: PipelineState) -> str:
     if state["review"]["approved"]:
-        return "approved"
+        return "resolved"
     if state["revision_count"] >= 2:
         print("[Orchestrator] Max revisions reached, escalating to human.", flush=True)
-        return "approved"
+        return "resolved"
     print("[Orchestrator] Review rejected -> sending back to Coding Assistant\n", flush=True)
     return "coding"
 
@@ -94,6 +128,7 @@ def build_graph():
     graph.add_node("bug_investigation", bug_investigation_node)
     graph.add_node("coding", coding_node)
     graph.add_node("review", review_node)
+    graph.add_node("review_resolved", review_resolved_node)
     graph.add_node("testing", testing_node)
     graph.add_node("documentation", documentation_node)
 
@@ -109,10 +144,12 @@ def build_graph():
 
     graph.add_conditional_edges(
         "review", route_after_review,
-        {"coding": "coding", "approved": "testing"}
+        {"coding": "coding", "resolved": "review_resolved"}
     )
 
-    graph.add_edge("review", "documentation")
+    graph.add_edge("review_resolved", "testing")
+    graph.add_edge("review_resolved", "documentation")
+
     graph.add_edge("testing", END)
     graph.add_edge("documentation", END)
 

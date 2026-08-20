@@ -1,11 +1,10 @@
 import chromadb
 from sentence_transformers import SentenceTransformer
+from rag_indexer import collection_name_for
 
 CHROMA_PATH = "./chroma_db"
-COLLECTION_NAME = "click_codebase"
 
 _model = None
-_collection = None
 
 
 def _get_model():
@@ -15,20 +14,21 @@ def _get_model():
     return _model
 
 
-def _get_collection():
-    global _collection
-    if _collection is None:
-        client = chromadb.PersistentClient(path=CHROMA_PATH)
-        _collection = client.get_collection(COLLECTION_NAME)
-    return _collection
-
-
-def retrieve_relevant_code(query: str, n_results: int = 4) -> list[dict]:
+def retrieve_relevant_code(query: str, owner: str, repo: str, n_results: int = 4) -> list[dict]:
     model = _get_model()
-    collection = _get_collection()
+    client = chromadb.PersistentClient(path=CHROMA_PATH)
+    coll_name = collection_name_for(owner, repo)
+
+    try:
+        collection = client.get_collection(coll_name)
+    except Exception:
+        return []  # index doesn't exist for this repo yet — degrade gracefully
+
+    if collection.count() == 0:
+        return []
 
     query_embedding = model.encode([query]).tolist()
-    results = collection.query(query_embeddings=query_embedding, n_results=n_results)
+    results = collection.query(query_embeddings=query_embedding, n_results=min(n_results, collection.count()))
 
     chunks = []
     for doc, meta in zip(results["documents"][0], results["metadatas"][0]):

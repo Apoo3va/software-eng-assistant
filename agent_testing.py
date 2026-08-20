@@ -5,7 +5,7 @@ import os
 import sys
 from groq import Groq
 from dotenv import load_dotenv
-from llm_utils import safe_json_parse
+from llm_utils import call_llm_for_json
 
 load_dotenv()
 
@@ -52,15 +52,7 @@ Respond ONLY with valid JSON in exactly this format, no other text:
   "test_summary": "one sentence describing what the tests check"
 }}
 """
-
-    response = groq_client.chat.completions.create(
-        model="openai/gpt-oss-120b",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
-
-    raw_text = response.choices[0].message.content
-    return safe_json_parse(raw_text, groq_client=groq_client)
+    return call_llm_for_json(groq_client, "openai/gpt-oss-20b", prompt, max_tokens=4000)
 
 
 def _run_pytest(test_code: str) -> tuple[str, bool]:
@@ -90,7 +82,21 @@ def generate_and_run_tests(issue_title: str, fix: dict, requirements: dict, max_
 
     for attempt in range(1, max_attempts + 1):
         print(f"  [Testing Agent] Attempt {attempt}/{max_attempts}...", flush=True)
-        result = _generate_test_code(issue_title, fix, requirements, previous_error)
+        try:
+            result = _generate_test_code(issue_title, fix, requirements, previous_error)
+        except Exception as e:
+            print(f"  [Testing Agent] Failed to generate valid test JSON on attempt {attempt}: {e}", flush=True)
+            if attempt == max_attempts:
+                return {
+                    "test_code": "",
+                    "test_summary": "Test generation failed due to malformed or empty LLM output.",
+                    "execution_output": str(e),
+                    "tests_passed": False,
+                    "attempts_used": attempt
+                }
+            previous_error = str(e)
+            continue
+
         output, passed = _run_pytest(result["test_code"])
         result["execution_output"] = output
         result["tests_passed"] = passed

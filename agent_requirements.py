@@ -3,7 +3,8 @@ import json
 from groq import Groq
 from dotenv import load_dotenv
 import os
-from llm_utils import safe_json_parse
+from llm_utils import call_llm_for_json
+
 
 load_dotenv()
 
@@ -40,15 +41,7 @@ Respond ONLY with valid JSON in exactly this format, no other text:
   "estimated_complexity": "low" or "medium" or "high"
 }}
 """
-
-    response = groq_client.chat.completions.create(
-        model="openai/gpt-oss-120b",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
-
-    raw_text = response.choices[0].message.content
-    return safe_json_parse(raw_text, groq_client=groq_client)
+    return call_llm_for_json(groq_client, "openai/gpt-oss-20b", prompt)
 
 
 if __name__ == "__main__":
