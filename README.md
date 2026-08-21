@@ -2,60 +2,79 @@
 
 An end to end multi agent system that reads real GitHub issues, investigates bugs, proposes fixes, reviews code, writes and runs tests, generates documentation, and opens real pull requests, all gated behind human approval.
 
-Built as a capstone project demonstrating agentic AI system design: specialized agents, orchestrated handoffs, retrieval augmented generation, long term memory, reflection loops, parallel execution, and real world tool use through the GitHub API.
+This was built as a capstone project to demonstrate practical, production style agentic AI system design rather than a toy demo: specialized agents with clear responsibilities, orchestrated handoffs, retrieval augmented generation grounded in real code, long term memory, reflection loops, parallel execution, structured outputs, graceful error handling, and genuine real world tool use through the GitHub API, including opening and merging real pull requests.
 
 ## Live demo
 
-A live, publicly deployed version of this app is linked in the About section of this repository on GitHub. Open it, enter any public repository owner and name along with a real issue number, and click Run Pipeline to see the full agent chain execute in real time.
+A live, publicly deployed version of this app is linked in the About section of this repository on GitHub. Open it, enter any public repository owner and name along with a real issue number from that repository, and click Run Pipeline to watch the full agent chain execute in real time.
 
 ## What it does
 
-Given any public GitHub repository and an issue number, the system runs a full software engineering pipeline:
+Given any public GitHub repository and an issue number, the system runs a complete, six stage software engineering pipeline.
 
-1. Reads and classifies the issue
-2. Investigates the likely cause using retrieval over the actual cloned codebase
-3. Proposes a code fix grounded in real retrieved code
-4. Reviews the fix and sends it back for revision if it is not good enough
-5. Writes and runs real automated tests in a sandboxed environment, correcting itself if the tests fail
-6. Generates documentation and a changelog entry
-7. Pauses for a human to approve or reject the fix
-8. On approval, forks the repository, creates a branch, commits the fix, and opens a real pull request
+1. Requirements Analysis reads the raw issue text and turns it into structured data: whether it is a bug, a feature, or a chore, a one sentence summary, a list of acceptance criteria, and an estimated complexity.
+2. If the issue is a bug, Bug Investigation clones and indexes the target repository into a local vector database, then retrieves the most relevant real code chunks and uses them to reason about likely root causes and suspected files, rather than guessing.
+3. Coding Assistant proposes an actual code fix, again grounded in the retrieved code, along with a risk level and a flag for whether a human should review it.
+4. Code Reviewer evaluates the proposed fix. If it is rejected, the system automatically sends it back to the Coding Assistant for another attempt, up to a limited number of revisions, after which it escalates to a human rather than looping forever.
+5. Once review passes, Testing Agent and Documentation Writer run at the same time. The Testing Agent writes a real, self contained pytest file and actually executes it in a sandboxed subprocess. If the tests fail because of a mistake in the generated test code itself, it feeds that failure back into a second attempt automatically. The Documentation Writer produces a changelog entry, inline code comments, and a short readme style snippet describing the change.
+6. The pipeline pauses and shows a human approval gate in the interface. Nothing happens automatically past this point.
+7. When a human clicks approve, the system performs real GitHub actions: it forks the target repository into the user's account if they do not already own it, creates a new branch, commits the proposed fix as a file, and opens an actual pull request with a full description, linking back to the original issue.
+
+Every resolved issue that gets approved is also stored in a long term memory collection, so future runs on similar issues can recall and reference what was done before.
 
 ## Agents
 
-| Agent | Responsibility |
-|---|---|
-| Requirements Analysis | Classifies the issue and extracts acceptance criteria |
-| Bug Investigation | Uses retrieval augmented generation over the real codebase to find likely root causes |
-| Coding Assistant | Proposes a fix grounded in retrieved code |
-| Code Reviewer | Approves or rejects the fix, with a reflection loop back to the Coding Assistant |
-| Testing Agent | Writes pytest tests and runs them in a real sandbox, retrying and self correcting on failure |
-| Documentation Writer | Generates a changelog entry, code comments, and a readme snippet |
+| Agent | File | Responsibility |
+|---|---|---|
+| Requirements Analysis | agent requirements.py | Fetches the GitHub issue and classifies it into structured JSON |
+| Bug Investigation | agent bug investigation.py | Uses retrieval augmented generation over the real, cloned codebase to identify likely root causes and files |
+| Coding Assistant | agent coding.py | Proposes a fix grounded in retrieved code |
+| Code Reviewer | agent code review.py | Approves or rejects the fix and provides feedback, with a reflection loop back to the Coding Assistant |
+| Testing Agent | agent testing.py | Writes pytest tests and runs them in a real sandbox, retrying and correcting itself when a test fails due to a mistake in the generated test |
+| Documentation Writer | agent documentation.py | Generates a changelog entry, code comments, and a readme snippet |
 
 ## Architecture
 
-The pipeline is orchestrated with LangGraph as a typed state graph. Every agent reads from and writes to a shared state object, and routing between agents is handled by explicit conditional edges rather than hand written if statements.
+The pipeline is orchestrated with LangGraph as a typed state graph, defined in graph.py. Every agent is a node that reads from and writes to one shared, typed state object, defined in graph state.py. Routing between agents is handled through explicit conditional edges rather than nested if statements, which keeps the control flow readable even as more agents and branches are added.
 
-Key design points:
+Several design decisions are worth calling out specifically, since they were deliberate engineering choices rather than defaults.
 
-* Structured outputs only. Every agent returns strict JSON, validated and repaired automatically if the model returns malformed output.
-* Long term memory. Resolved issues are embedded and stored in a vector database, so future runs can recall similar past fixes.
-* Retrieval augmented generation. Each target repository is cloned and indexed on demand into its own vector collection, so the Bug Investigation and Coding agents ground their answers in real code rather than guessing.
-* Reflection loops. The Code Reviewer can send a rejected fix back to the Coding Assistant, up to a limited number of revisions before escalating to a human. The Testing Agent retries its own test generation when a test fails, feeding the failure back into the next attempt.
-* Parallel execution. Once a fix is approved by review, Testing and Documentation run at the same time rather than one after another.
-* Human approval gate. Nothing reaches GitHub without an explicit human click.
-* Real world action. Approval triggers real API calls: forking the repository if needed, creating a branch, committing the proposed fix, and opening an actual pull request.
+Structured outputs only. Every single agent is required to return strict JSON matching an explicit schema described in its prompt. Since language models occasionally return malformed JSON, especially smaller free tier models, a shared helper in llm utils.py called safe json parse attempts several layers of automatic repair: stripping markdown fences, removing trailing commas, fixing invalid backslash escapes that commonly appear in generated code snippets, and finally asking the model itself to repair its own broken output. A second helper, call llm for json, wraps the entire API call and automatically retries from scratch if the model returns a genuinely empty response, which was traced back to gpt oss models spending their token budget on hidden reasoning before ever writing an answer. Setting reasoning effort to low on every call fixed this at the source.
+
+Long term memory. Approved fixes are embedded and stored in a persistent ChromaDB collection through memory store.py. Before investigating a new bug, the system searches this memory for similar past resolved issues and includes them as context, so the assistant genuinely gets more informed over time rather than starting from zero on every run.
+
+Retrieval augmented generation, built dynamically per repository. Rather than being hard coded to one demo codebase, rag indexer.py clones and indexes whichever repository is entered in the interface, on demand, into its own separate ChromaDB collection keyed by owner and repository name. The first run against a new repository takes longer because of the clone and embedding step, and every run after that reuses the cached index. This means the tool genuinely generalizes to any public repository, not just the one it was originally tested against.
+
+Reflection loops. Two separate reflection mechanisms exist in this system. The Code Reviewer can reject a fix and send it back to the Coding Assistant, up to a limited number of revisions, after which the orchestrator escalates to a human instead of looping indefinitely. Separately, the Testing Agent has its own inner reflection loop: if the tests it writes fail to even run correctly because of a bug in the generated test code itself, the failure output is fed back into a second generation attempt.
+
+Parallel execution. Once a fix clears review, Testing and Documentation Writer both run from the same point in the graph rather than one waiting for the other, since neither depends on the other's output.
+
+Human approval gate. The interface shows a clear approval step and takes no destructive or external action until a person explicitly clicks approve.
+
+Real world action, not simulation. Approval triggers github actions.py, which performs genuine GitHub API calls: forking the repository if needed, creating a branch, committing the actual proposed fix as a file, and opening a real pull request with a full, linked description. This has been verified end to end multiple times, including against a well known open source project and against a personal repository, where the resulting pull request was reviewed and merged for real.
+
+Defensive error handling throughout. Every agent node applies sensible default values if the model omits an expected field, network and rate limit errors are caught and surfaced clearly in the interface instead of crashing silently, and the Streamlit app disables the run button while a pipeline is already executing to prevent overlapping runs from exhausting the API rate limit.
 
 ## Tech stack
 
 * Python
-* LangGraph for orchestration
-* Groq API (model openai gpt oss 20b) for the language model calls, chosen for fast inference and a generous free tier
-* ChromaDB for the vector store, used for both retrieval augmented generation and long term memory
-* Sentence Transformers for local embeddings
-* Direct REST calls to the GitHub API for all repository interaction
-* pytest, run in a real subprocess sandbox, for test execution
-* Streamlit for the web interface and for hosting the live deployment
+* LangGraph for multi agent orchestration and state management
+* Groq API, using the openai gpt oss 20b model, chosen specifically for its fast inference speed and generous free tier limits after an earlier model this project relied on was deprecated mid development
+* ChromaDB as the vector store, used both for retrieval augmented generation over target codebases and for long term memory of resolved issues
+* Sentence Transformers, specifically the all MiniLM L6 v2 model, for local embeddings, so no external embedding API or cost is required
+* Direct REST calls to the GitHub API using the requests library, for fetching issues and for all repository automation
+* pytest, executed in a real subprocess sandbox, for actual test generation and execution
+* Streamlit for the web interface, and for hosting the free, public deployment
+
+## Project structure
+
+* app.py, the Streamlit interface
+* graph.py and graph state.py, the LangGraph orchestration layer and shared state definition
+* agent requirements.py, agent bug investigation.py, agent coding.py, agent code review.py, agent testing.py, agent documentation.py, the six specialized agents
+* rag indexer.py and rag retriever.py, dynamic per repository retrieval augmented generation
+* memory store.py, long term memory of resolved issues
+* llm utils.py, shared, resilient JSON parsing and LLM calling helpers used by every agent
+* github actions.py, real GitHub automation: forking, branching, committing, and opening pull requests
 
 ## Running it locally
 
@@ -65,23 +84,17 @@ Create a virtual environment and activate it.
 
 Install the dependencies listed in requirements.txt using pip.
 
-Create a file literally named dotenv (that is, a file named .env) in the project root containing two values: a Groq API key under the name GROQ_API_KEY, and a GitHub personal access token with repository write access under the name GITHUB_TOKEN.
+Create a file literally named dotenv, that is a file named .env, in the project root containing two values: a Groq API key under the name GROQ underscore API underscore KEY, and a GitHub personal access token with repository write access under the name GITHUB underscore TOKEN.
 
 Start the app with the command streamlit run app.py, then open the local address it prints in your browser.
 
 Enter any public repository owner and name, along with a real issue number from that repository, and click Run Pipeline.
 
-## Human approval and real GitHub automation
-
-When the pipeline finishes, if the fix is flagged as needing review, the interface shows an approval gate. Clicking approve does not just simulate success. It performs real actions against the GitHub API: it forks the target repository into your account if you do not already own it, creates a new branch, commits the proposed fix as a file, and opens an actual pull request that you can open and inspect on GitHub.
-
-This has been tested successfully both against a well known open source project and against a personal repository, where the resulting pull request was reviewed and merged.
-
 ## Known limitations
 
-* The free tier of the Groq API imposes rate limits, so heavy repeated use during testing can occasionally trigger a temporary delay.
-* Language models occasionally return malformed or empty output. The system includes multiple layers of retry and repair, but this is inherent to working with smaller, free tier models rather than a bug in the pipeline itself.
-* Test generation targets illustrative, self contained pytest files rather than tests wired directly into the target repository's own test suite, since the system does not yet install or execute the target project's real dependencies.
+* The free tier of the Groq API imposes both daily and per minute token limits, so heavy repeated use during testing can occasionally trigger a temporary rate limit delay. The interface surfaces this clearly rather than crashing.
+* Language models occasionally return malformed or genuinely empty output, particularly smaller free tier models under load. The system includes multiple layers of retry and repair for this, but it is an inherent characteristic of working with free tier models rather than a defect in the pipeline logic itself.
+* Generated tests are self contained, illustrative pytest files rather than tests wired directly into the target repository's own existing test suite and dependencies, since the system does not install or execute the target project's real environment.
 
 ## Author
 
