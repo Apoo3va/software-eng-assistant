@@ -54,6 +54,64 @@ Human approval gate. The interface shows a clear approval step and takes no dest
 Real world action, not simulation. Approval triggers github actions.py, which performs genuine GitHub API calls: forking the repository if needed, creating a branch, committing the actual proposed fix as a file, and opening a real pull request with a full, linked description. This has been verified end to end multiple times, including against a well known open source project and against a personal repository, where the resulting pull request was reviewed and merged for real.
 
 Defensive error handling throughout. Every agent node applies sensible default values if the model omits an expected field, network and rate limit errors are caught and surfaced clearly in the interface instead of crashing silently, and the Streamlit app disables the run button while a pipeline is already executing to prevent overlapping runs from exhausting the API rate limit.
+### Full system diagram
+
+\`\`\`
+GITHUB ISSUE (fetched via GitHub API)
+        |
+        v
+REQUIREMENTS ANALYSIS AGENT
+Classifies issue type, writes summary, extracts acceptance criteria
+        |
+        v
+   issue type = bug? -----------------------------+
+        | yes                                     | no
+        v                                          |
+BUG INVESTIGATION AGENT                             |
+Retrieves real code from a vector index of the      |
+target repo (RAG), reasons about likely cause        |
+        |                                          |
+        +------------------------------------------+
+        |
+        v
+CODING ASSISTANT AGENT
+Proposes a fix grounded in the retrieved real code, sets risk level
+        |
+        v
+CODE REVIEWER AGENT  <-------------------------+
+Approves or rejects the fix against criteria    |
+        |                                       |
+   rejected, retry (limited attempts) ----------+
+        |
+   approved OR retry limit reached
+        |
+        +------------------------+
+        |                        |
+        v                        v
+TESTING AGENT              DOCUMENTATION WRITER AGENT
+Writes and runs real       Generates changelog entry,
+pytest tests, self         code comments, readme
+corrects on failure        snippet
+        |                        |
+        +------------+-----------+
+                     |
+                     v
+          HUMAN APPROVAL GATE
+     Pipeline stops, waits for a
+     person to click approve
+                     |
+                approved
+                     |
+                     v
+          GITHUB PULL REQUEST
+     Forks repo if needed, creates
+     branch, commits fix, opens
+     real pull request via API
+
+LONG TERM MEMORY (ChromaDB, runs alongside the whole pipeline):every approved fix is embedded and stored, then recalled by the Bug Investigation agent on future similar issues.
+\`\`\`
+
+A real GitHub issue flows through six specialized agents, each with one job, connected by explicit routing rather than a fixed script. Bug Investigation and Coding Assistant both ground their reasoning in real code retrieved from the target repository, Code Reviewer can send a bad fix back for a limited number of retries before escalating, and Testing and Documentation run in parallel once review is settled. Nothing reaches GitHub until a human explicitly approves it, at which point the system performs a real fork, branch, commit, and pull request, while every approved fix is also saved to long term memory for future runs.
 
 ## Tech stack
 
