@@ -58,65 +58,128 @@ Defensive error handling throughout. Every agent node applies sensible default v
 
 A real GitHub issue flows through six specialized agents, each with one job, connected by explicit routing rather than a fixed script. Bug Investigation and Coding Assistant both ground their reasoning in real code retrieved from the target repository, Code Reviewer can send a bad fix back for a limited number of retries before escalating, and Testing and Documentation run in parallel once review is settled. Nothing reaches GitHub until a human explicitly approves it, at which point the system performs a real fork, branch, commit, and pull request, while every approved fix is also saved to long term memory for future runs.
 
-### Full system diagram
+GITHUB ISSUE
+(fetched via GitHub API)
+        |
+        v
++-----------------------------+
+| REQUIREMENTS ANALYSIS AGENT |
++-----------------------------+
+  Classifies issue type,
+  writes summary, extracts
+  acceptance criteria
+        |
+        v
+   +-------------------+
+   | issue type = bug? |
+   +-------------------+
+      |             |
+     yes            no
+      |             |
+      v             |
++------------------------+   |
+| BUG INVESTIGATION      |   |
+| AGENT                  |   |
++------------------------+   |
+  Retrieves real code       |
+  from a vector index       |
+  of the target repo        |
+  (RAG) and reasons         |
+  about likely cause        |
+      |                     |
+      +---------------------+
+      |
+      v
++-----------------------------+
+| CODING ASSISTANT AGENT      |
++-----------------------------+
+  Proposes a fix grounded
+  in retrieved real code
+  and sets risk level
+      |
+      v
++-----------------------------+
+| CODE REVIEWER AGENT         |
++-----------------------------+
+  Approves or rejects
+  the proposed fix
+      |
+      +----------------------------+
+      |                            |
+   rejected                    approved
+      |                            |
+      v                            |
+  +----------------+               |
+  | Retry Coding   |---------------+
+  | Assistant      |
+  | (limited)      |
+  +----------------+
+      |
+      | retry limit reached
+      v
++----------------------+
+| HUMAN ESCALATION     |
++----------------------+
+      |
+      | if approved
+      v
++-----------------------------+
+| TESTING AGENT               |
++-----------------------------+
+  Writes and runs real
+  pytest tests and
+  self-corrects on failure
+      |
+      |
+      +----------------------+
+                             |
+                             v
+                  +--------------------------+
+                  | DOCUMENTATION WRITER     |
+                  | AGENT                    |
+                  +--------------------------+
+                    Generates changelog,
+                    code comments, and
+                    README snippet
 
-​```
-GITHUB ISSUE (fetched via GitHub API)
-        |
-        v
-REQUIREMENTS ANALYSIS AGENT
-Classifies issue type, writes summary, extracts acceptance criteria
-        |
-        v
-   issue type = bug? -----------------------------+
-        | yes                                     | no
-        v                                          |
-BUG INVESTIGATION AGENT                             |
-Retrieves real code from a vector index of the      |
-target repo (RAG), reasons about likely cause        |
-        |                                          |
-        +------------------------------------------+
-        |
-        v
-CODING ASSISTANT AGENT
-Proposes a fix grounded in the retrieved real code, sets risk level
-        |
-        v
-CODE REVIEWER AGENT  <-------------------------+
-Approves or rejects the fix against criteria    |
-        |                                       |
-   rejected, retry (limited attempts) ----------+
-        |
-   approved OR retry limit reached
-        |
-        +------------------------+
-        |                        |
-        v                        v
-TESTING AGENT              DOCUMENTATION WRITER AGENT
-Writes and runs real       Generates changelog entry,
-pytest tests, self         code comments, readme
-corrects on failure        snippet
-        |                        |
-        +------------+-----------+
-                     |
-                     v
-          HUMAN APPROVAL GATE
-     Pipeline stops, waits for a
-     person to click approve
-                     |
-                approved
-                     |
-                     v
-          GITHUB PULL REQUEST
-     Forks repo if needed, creates
-     branch, commits fix, opens
-     real pull request via API
 
-LONG TERM MEMORY (ChromaDB, runs alongside the whole pipeline):
-every approved fix is embedded and stored, then recalled by the
-Bug Investigation agent on future similar issues.
-​```
+      TESTING + DOCUMENTATION
+             RUN IN PARALLEL
+                  |
+                  v
+        +-----------------------+
+        | HUMAN APPROVAL GATE   |
+        +-----------------------+
+          Pipeline stops and
+          waits for a person
+          to click approve
+                  |
+              approved
+                  |
+                  v
+        +-----------------------+
+        | GITHUB PULL REQUEST   |
+        +-----------------------+
+          Forks repo if needed
+          Creates branch
+          Commits proposed fix
+          Opens real pull request
+          via GitHub API
 
+
+LONG TERM MEMORY (ChromaDB)
+===========================
+
+  Every approved fix
+          |
+          v
+  Embed + store resolved issue
+          |
+          v
+  Recalled during future
+  Bug Investigation runs
+
+  
 ## Tech stack
 
 * Python
