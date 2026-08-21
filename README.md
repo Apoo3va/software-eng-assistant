@@ -7,6 +7,7 @@ This was built as a capstone project to demonstrate practical, production style 
 ## Live demo
 
 A live, publicly deployed version of this app is linked in the About section of this repository on GitHub. Open it, enter any public repository owner and name along with a real issue number from that repository, and click Run Pipeline to watch the full agent chain execute in real time.
+Link: software-eng-assistant.streamlit.app/
 
 ## What it does
 
@@ -54,9 +55,12 @@ Human approval gate. The interface shows a clear approval step and takes no dest
 Real world action, not simulation. Approval triggers github actions.py, which performs genuine GitHub API calls: forking the repository if needed, creating a branch, committing the actual proposed fix as a file, and opening a real pull request with a full, linked description. This has been verified end to end multiple times, including against a well known open source project and against a personal repository, where the resulting pull request was reviewed and merged for real.
 
 Defensive error handling throughout. Every agent node applies sensible default values if the model omits an expected field, network and rate limit errors are caught and surfaced clearly in the interface instead of crashing silently, and the Streamlit app disables the run button while a pipeline is already executing to prevent overlapping runs from exhausting the API rate limit.
+
+A real GitHub issue flows through six specialized agents, each with one job, connected by explicit routing rather than a fixed script. Bug Investigation and Coding Assistant both ground their reasoning in real code retrieved from the target repository, Code Reviewer can send a bad fix back for a limited number of retries before escalating, and Testing and Documentation run in parallel once review is settled. Nothing reaches GitHub until a human explicitly approves it, at which point the system performs a real fork, branch, commit, and pull request, while every approved fix is also saved to long term memory for future runs.
+
 ### Full system diagram
 
-\`\`\`
+​```
 GITHUB ISSUE (fetched via GitHub API)
         |
         v
@@ -108,10 +112,10 @@ corrects on failure        snippet
      branch, commits fix, opens
      real pull request via API
 
-LONG TERM MEMORY (ChromaDB, runs alongside the whole pipeline):every approved fix is embedded and stored, then recalled by the Bug Investigation agent on future similar issues.
-\`\`\`
-
-A real GitHub issue flows through six specialized agents, each with one job, connected by explicit routing rather than a fixed script. Bug Investigation and Coding Assistant both ground their reasoning in real code retrieved from the target repository, Code Reviewer can send a bad fix back for a limited number of retries before escalating, and Testing and Documentation run in parallel once review is settled. Nothing reaches GitHub until a human explicitly approves it, at which point the system performs a real fork, branch, commit, and pull request, while every approved fix is also saved to long term memory for future runs.
+LONG TERM MEMORY (ChromaDB, runs alongside the whole pipeline):
+every approved fix is embedded and stored, then recalled by the
+Bug Investigation agent on future similar issues.
+​```
 
 ## Tech stack
 
