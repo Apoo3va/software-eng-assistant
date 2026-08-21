@@ -7,7 +7,8 @@ This was built as a capstone project to demonstrate practical, production style 
 ## Live demo
 
 A live, publicly deployed version of this app is linked in the About section of this repository on GitHub. Open it, enter any public repository owner and name along with a real issue number from that repository, and click Run Pipeline to watch the full agent chain execute in real time.
-Link: software-eng-assistant.streamlit.app/
+Link: [software-eng-assistant.streamlit.app](https://software-eng-assistant.streamlit.app/)
+
 
 ## What it does
 
