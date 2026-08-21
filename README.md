@@ -58,90 +58,58 @@ Defensive error handling throughout. Every agent node applies sensible default v
 
 A real GitHub issue flows through six specialized agents, each with one job, connected by explicit routing rather than a fixed script. Bug Investigation and Coding Assistant both ground their reasoning in real code retrieved from the target repository, Code Reviewer can send a bad fix back for a limited number of retries before escalating, and Testing and Documentation run in parallel once review is settled. Nothing reaches GitHub until a human explicitly approves it, at which point the system performs a real fork, branch, commit, and pull request, while every approved fix is also saved to long term memory for future runs.
 
-GITHUB ISSUE
-(fetched via GitHub API)
-        |
-        v
-+-----------------------------+
-| REQUIREMENTS ANALYSIS AGENT |
-+-----------------------------+
-  Classifies issue type,
-  writes summary, extracts
-  acceptance criteria
-        |
-        v
-   +-------------------+
-   | issue type = bug? |
-   +-------------------+
-      |             |
-     yes            no
-      |             |
-      v             |
-+------------------------+   |
-| BUG INVESTIGATION      |   |
-| AGENT                  |   |
-+------------------------+   |
-  Retrieves real code       |
-  from a vector index       |
-  of the target repo        |
-  (RAG) and reasons         |
-  about likely cause        |
-      |                     |
-      +---------------------+
-      |
-      v
-+-----------------------------+
-| CODING ASSISTANT AGENT      |
-+-----------------------------+
-  Proposes a fix grounded
-  in retrieved real code
-  and sets risk level
-      |
-      v
-+-----------------------------+
-| CODE REVIEWER AGENT         |
-+-----------------------------+
-  Approves or rejects
-  the proposed fix
-      |
-      +----------------------------+
-      |                            |
-   rejected                    approved
-      |                            |
-      v                            |
-  +----------------+               |
-  | Retry Coding   |---------------+
-  | Assistant      |
-  | (limited)      |
-  +----------------+
-      |
-      | retry limit reached
-      v
-+----------------------+
-| HUMAN ESCALATION     |
-+----------------------+
-      |
-      | if approved
-      v
-+-----------------------------+
-| TESTING AGENT               |
-+-----------------------------+
-  Writes and runs real
-  pytest tests and
-  self-corrects on failure
-      |
-      |
-      +----------------------+
-                             |
-                             v
-                  +--------------------------+
-                  | DOCUMENTATION WRITER     |
-                  | AGENT                    |
-                  +--------------------------+
-                    Generates changelog,
-                    code comments, and
-                    README snippet
+### Full system diagram
 
+```mermaid
+flowchart TD
+
+    A["GitHub Issue<br/>(fetched via GitHub API)"]
+    B["Requirements Analysis Agent<br/>Classifies issue type, writes summary,<br/>extracts acceptance criteria"]
+
+    A --> B
+    B --> C{"Issue type = bug?"}
+
+    C -->|Yes| D["Bug Investigation Agent<br/>Retrieves real code from a vector index<br/>of the target repository (RAG)<br/>and reasons about likely cause"]
+
+    C -->|No| E["Coding Assistant Agent<br/>Proposes a fix grounded in retrieved<br/>real code and sets risk level"]
+    D --> E
+
+    E --> F["Code Reviewer Agent<br/>Approves or rejects the proposed fix"]
+
+    F -->|Rejected| G{"Revision limit reached?"}
+    G -->|No| E
+    G -->|Yes| H["Human Escalation"]
+
+    F -->|Approved| I["Testing Agent<br/>Writes and runs real pytest tests<br/>and self-corrects on test-generation failures"]
+
+    H -->|Human approves| I
+
+    F -->|Approved| J["Documentation Writer Agent<br/>Generates changelog entry,<br/>code comments, and README snippet"]
+
+    I --> K["Human Approval Gate"]
+    J --> K
+
+    K -->|Approved| L["GitHub Pull Request<br/>Forks repo if needed<br/>Creates branch<br/>Commits proposed fix<br/>Opens real pull request via API"]
+
+    M["Long Term Memory (ChromaDB)<br/>Every approved fix is embedded and stored<br/>Future Bug Investigation runs recall similar fixes"]
+
+    L --> M
+
+    classDef agent fill:#1f6feb,stroke:#58a6ff,color:#ffffff,stroke-width:2px;
+    classDef decision fill:#9e6a03,stroke:#d29922,color:#ffffff,stroke-width:2px;
+    classDef human fill:#8957e5,stroke:#bc8cff,color:#ffffff,stroke-width:2px;
+    classDef action fill:#238636,stroke:#3fb950,color:#ffffff,stroke-width:2px;
+    classDef memory fill:#6e40c9,stroke:#a371f7,color:#ffffff,stroke-width:2px;
+
+    class B,D,E,F,I,J agent;
+    class C,G decision;
+    class H,K human;
+    class A,L action;
+    class M memory;
+```
+**Testing Agent and Documentation Writer run in parallel after review passes.**
+
+**Long term memory:** every approved fix is embedded and stored in ChromaDB, then recalled by Bug Investigation during future runs on similar issues.
 
       TESTING + DOCUMENTATION
              RUN IN PARALLEL
